@@ -1,23 +1,40 @@
 # RV32I MCU
 
-A small RV32I microcontroller platform for learning bare-metal C, memory-mapped I/O, interrupts, and FPGA integration.
+A small FPGA microcontroller platform for learning how bare-metal C connects to a custom five-stage RV32I processor, memory-mapped peripherals, simulation, and real hardware.
 
-## Goal
+The processor base comes from the verified `rv32i-pipelined` project at commit `40901f3`.
 
-Run C programs on a custom five-stage RV32I processor and connect software behavior to RTL, simulation, and physical FPGA results.
+## Current checkpoint
 
-## Hardware base
+- Minimal C startup code and linker script
+- Separate instruction and data memory images
+- GPIO, timer, UART TX, and UART RX through memory-mapped I/O
+- C program that prints `C READY`, drives the LEDs, and echoes received bytes
+- Self-checking full-SoC simulation
+- Tang Nano 9K synthesis, timing, and physical FPGA test
 
-The processor starts from the verified `rv32i-pipelined` checkpoint at commit `40901f3`.
+## Commands
 
-## Planned first checkpoint
+Run everything from the repository root:
 
-- Minimal startup code
-- Linker script
-- GPIO and UART access from C
-- Self-checking simulation
-- Tang Nano 9K demonstration
+```bash
+make help
+make test
+make wave
+make fpga
+make flash
+make uart-ports
+make uart-monitor UART_PORT=/dev/ttyUSB1
+```
 
-## Status
+After flashing, press reset. The UART monitor should print `C READY`, typed characters should be echoed by the board, and the LEDs should keep moving.
 
-Initial project setup.
+## Layout
+
+```text
+rtl/       Processor, pipeline, memories, peripherals, and SoC
+software/  Startup code, linker script, MMIO definitions, and C programs
+tests/     Self-checking SoC simulation
+fpga/      Tang Nano 9K top level and pin constraints
+scripts/   Binary conversion and UART monitor tools
+```
