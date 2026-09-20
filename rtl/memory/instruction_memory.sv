@@ -4,13 +4,14 @@ module instruction_memory #( parameter INIT_FILE = "")(
 	output logic [31:0] instruction
 );
 
-logic [31:0] memory [0:255];
+// 4 KiB instruction storage: 1024 words of 32 bits.
+logic [31:0] memory [0:1023];
 
 initial begin
 	if (INIT_FILE != "")
 		$readmemh(INIT_FILE, memory);
 end
 
-assign instruction = memory[pc[9:2]];
+assign instruction = memory[pc[11:2]];
 
 endmodule

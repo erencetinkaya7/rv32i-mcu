@@ -112,12 +112,8 @@ module c_bringup_tb;
         end
     endtask
 
-    initial begin
-        repeat (3) @(posedge clk);
-        @(negedge clk);
-        reset = 1'b0;
-
-        // Startup message and ordinary echo.
+    task automatic check_ready;
+        begin
         check_uart_byte("C");
         check_uart_byte(" ");
         check_uart_byte("I");
@@ -130,6 +126,16 @@ module c_bringup_tb;
         check_uart_byte("D");
         check_uart_byte("Y");
         check_uart_byte(10);
+        end
+    endtask
+
+    initial begin
+        repeat (3) @(posedge clk);
+        @(negedge clk);
+        reset = 1'b0;
+
+        // Startup message and ordinary echo.
+        check_ready();
 
         send_uart_byte("K");
         check_uart_byte("K");
@@ -223,6 +229,26 @@ module c_bringup_tb;
 
         if (mret_count == 0)
             $fatal(1, "FAIL: trap handler did not execute MRET");
+
+        // Change .data, then reset without reloading the memory image.
+        send_uart_byte("+");
+        check_uart_byte("F");
+        check_uart_byte("A");
+        check_uart_byte("S");
+        check_uart_byte("T");
+        check_uart_byte("E");
+        check_uart_byte("R");
+        check_uart_byte(10);
+        wait_timer_load(32'd128);
+
+        @(negedge clk);
+        reset = 1'b1;
+        repeat (3) @(negedge clk);
+        reset = 1'b0;
+        check_ready();
+        wait_timer_load(32'd256);
+        check_gpio_pattern(32'd1);
+        check_gpio_pattern(32'd2);
 
         $display("PASS: C timer interrupts, UART commands and GPIO behavior");
         $finish;

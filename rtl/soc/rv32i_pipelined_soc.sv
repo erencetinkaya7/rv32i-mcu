@@ -64,8 +64,8 @@ module rv32i_pipelined_soc #(
     logic uart_rx_status_selected;
     logic uart_rx_clear_selected;
 
-    // Data RAM: 0x0001_0000 - 0x0001_00FF
-    assign ram_selected = (data_address[31:8] == DATA_RAM_BASE[31:8]);
+    // Data RAM: 0x0001_0000 - 0x0001_03FF
+    assign ram_selected = (data_address[31:10] == DATA_RAM_BASE[31:10]);
     assign gpio_out_selected    = (data_address == GPIO_OUT_ADDR);
     assign gpio_in_selected     = (data_address == GPIO_IN_ADDR);
     assign uart_tx_selected     = (data_address == UART_TX_ADDR);

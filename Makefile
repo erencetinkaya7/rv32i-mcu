@@ -45,6 +45,7 @@ CFLAGS := $(ARCH_FLAGS) \
 	-fno-pic \
 	-fno-common \
 	-fno-stack-protector \
+	-fstack-usage \
 	-fno-unwind-tables \
 	-fno-asynchronous-unwind-tables \
 	-ffunction-sections \
@@ -82,7 +83,7 @@ $(TIMER_CONFIG): FORCE
 		echo "$(TIMER_TICKS)" > "$@"; \
 	fi
 
-$(MAIN_OBJ): $(MAIN_SRC) $(COMMON_DIR)/mmio.h $(TIMER_CONFIG)
+$(MAIN_OBJ): $(MAIN_SRC) $(COMMON_DIR)/mmio.h $(TIMER_CONFIG) Makefile
 	@mkdir -p $(SOFTWARE_BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
@@ -93,22 +94,22 @@ $(ELF): $(STARTUP_OBJ) $(TRAP_OBJ) $(MAIN_OBJ) $(LINKER)
 $(IMEM_BIN): $(ELF)
 	$(OBJCOPY) -O binary --only-section=.text $< $@
 
-$(DMEM_BIN): $(ELF)
-	$(OBJCOPY) -O binary --only-section=.rodata $< $@
+$(DMEM_BIN): $(ELF) Makefile
+	$(OBJCOPY) -O binary --only-section=.rodata --only-section=.data $< $@
 
 $(DIS): $(ELF)
 	$(OBJDUMP) -d -M no-aliases $< > $@
 
-$(IMEM_HEX): $(IMEM_BIN) scripts/bin_to_hex.py
+$(IMEM_HEX): $(IMEM_BIN) scripts/bin_to_hex.py Makefile
 	$(PYTHON) scripts/bin_to_hex.py $< $@ \
-		--words 256 \
+		--words 1024 \
 		--fill 0x00000013 \
 		--strict-word-alignment
 	@touch $@
 
-$(DMEM_HEX): $(DMEM_BIN) scripts/bin_to_hex.py
+$(DMEM_HEX): $(DMEM_BIN) scripts/bin_to_hex.py Makefile
 	$(PYTHON) scripts/bin_to_hex.py $< $@ \
-		--words 64 \
+		--words 256 \
 		--fill 0x00000000
 	@touch $@
 
@@ -126,10 +127,14 @@ help:
 	@echo "Run from the repository root:"
 	@echo "  make software             Compile and link the C program"
 	@echo "  make inspect              Show ELF sections and RV32I disassembly"
-	@echo "  make test                 Run the self-checking SoC simulation"
-	@echo "  make wave                 Run the test and open GTKWave"
+	@echo "  make test                 Run all four checks with PASS/FAIL totals"
+	@echo "  make test-stack            Check linker stack-reservation boundary"
+	@echo "  make test-runtime          Check C initial values across reset"
+	@echo "  make test-c                Run the C/SoC integration test"
+	@echo "  make test-memory           Check memory addresses and RAM boundaries"
+	@echo "  make wave                 Run regression and open the C/SoC waveform"
 	@echo "  make fpga                 Build the Tang Nano 9K bitstream"
-	@echo "  make flash                Build if needed and program the FPGA"
+	@echo "  make flash                Build and load volatile FPGA SRAM"
 	@echo "  make uart-ports           List available serial ports"
 	@echo "  make uart-monitor         Open the interactive UART terminal"
 	@echo "  make clean                Remove generated build outputs"
@@ -153,14 +158,27 @@ WAVE_FILE := $(WAVE_DIR)/c_bringup.vcd
 TEST_SIM  := $(SIM_BUILD)/c_bringup_tb_sim
 TEST_LOG  := $(LOG_DIR)/c_bringup_tb.log
 
-.PHONY: test FORCE
+.PHONY: test test-c FORCE
 
 # Track TIMER_TICKS so software rebuilds only when the selected profile changes.
 FORCE:
 
 
-test: TIMER_TICKS=256
-test: software $(TEST_SIM)
+# Count test targets, including build failures, and always run every test.
+test:
+	@passed=0; failed=0; \
+	for target in test-memory test-c test-runtime test-stack; do \
+		if $(MAKE) --no-print-directory $$target; then \
+			passed=$$((passed + 1)); \
+		else \
+			failed=$$((failed + 1)); \
+		fi; \
+	done; \
+	echo "Summary: $$passed PASS, $$failed FAIL"; \
+	test $$failed -eq 0
+
+test-c: TIMER_TICKS=256
+test-c: software $(TEST_SIM)
 	@mkdir -p $(LOG_DIR) $(WAVE_DIR)
 	@$(VVP) $(TEST_SIM) > $(TEST_LOG) 2>&1 || { cat $(TEST_LOG); exit 1; }
 	@cat $(TEST_LOG)
@@ -225,3 +243,43 @@ uart-monitor:
 	$(PYTHON) scripts/uart_monitor.py \
 		--port $(UART_PORT) \
 		--baud $(UART_BAUD)
+
+# Isolated memory/address-decoder checks; no C program is required.
+.PHONY: test-memory
+test-memory: $(SIM_BUILD)/memory_map_tb_sim
+	@mkdir -p $(LOG_DIR)
+	@$(VVP) $< > $(LOG_DIR)/memory_map_tb.log 2>&1 || { cat $(LOG_DIR)/memory_map_tb.log; exit 1; }
+	@cat $(LOG_DIR)/memory_map_tb.log
+	@grep -q "PASS" $(LOG_DIR)/memory_map_tb.log
+
+$(SIM_BUILD)/memory_map_tb_sim: tests/memory_map_tb.sv $(wildcard $(RTL))
+	@mkdir -p $(SIM_BUILD)
+	$(IVERILOG) -g2012 -s memory_map_tb -o $@ $(RTL) $<
+
+# Build the runtime example separately from the interactive board program.
+.PHONY: runtime-software test-runtime
+runtime-software:
+	$(MAKE) --no-print-directory software APP_DIR=software/examples/runtime_check SOFTWARE_BUILD=build/runtime
+
+test-runtime: runtime-software $(SIM_BUILD)/c_runtime_tb_sim
+	@mkdir -p $(LOG_DIR)
+	@$(VVP) $(SIM_BUILD)/c_runtime_tb_sim > $(LOG_DIR)/c_runtime_tb.log 2>&1 || { cat $(LOG_DIR)/c_runtime_tb.log; exit 1; }
+	@cat $(LOG_DIR)/c_runtime_tb.log
+	@grep -q "PASS" $(LOG_DIR)/c_runtime_tb.log
+
+$(SIM_BUILD)/c_runtime_tb_sim: tests/c_runtime_tb.sv $(wildcard $(RTL))
+	@mkdir -p $(SIM_BUILD)
+	$(IVERILOG) -g2012 -s c_runtime_tb -o $@ $(RTL) $<
+
+# 768 bytes fit below the stack; one extra byte must be rejected.
+.PHONY: test-stack
+test-stack:
+	@mkdir -p $(BUILD)/stack-check $(LOG_DIR)
+	@$(CC) $(ASFLAGS) -DBSS_BYTES=768 -c tests/stack_layout.S -o $(BUILD)/stack-check/fits.o
+	@$(CC) $(ASFLAGS) -DBSS_BYTES=769 -c tests/stack_layout.S -o $(BUILD)/stack-check/overlap.o
+	@$(CC) $(ARCH_FLAGS) -nostdlib -Wl,-T,$(LINKER) -Wl,--build-id=none $(BUILD)/stack-check/fits.o -o $(BUILD)/stack-check/fits.elf
+	@if $(CC) $(ARCH_FLAGS) -nostdlib -Wl,-T,$(LINKER) -Wl,--build-id=none $(BUILD)/stack-check/overlap.o -o $(BUILD)/stack-check/overlap.elf > $(LOG_DIR)/stack_overlap.log 2>&1; then \
+		echo "FAIL: linker accepted data overlapping the stack"; exit 1; \
+	fi
+	@grep -q "Static data overlaps reserved stack" $(LOG_DIR)/stack_overlap.log || { cat $(LOG_DIR)/stack_overlap.log; exit 1; }
+	@echo "PASS: linker accepts the boundary and rejects stack overlap"

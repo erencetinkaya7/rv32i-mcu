@@ -3,8 +3,8 @@ ENTRY(_start)
 
 MEMORY
 {
-    IMEM (rx)  : ORIGIN = 0x00000000, LENGTH = 1K
-    DMEM (rw)  : ORIGIN = 0x00010000, LENGTH = 256
+    IMEM (rx)  : ORIGIN = 0x00000000, LENGTH = 4K
+    DMEM (rw)  : ORIGIN = 0x00010000, LENGTH = 1K
 }
 
 SECTIONS
@@ -25,13 +25,16 @@ SECTIONS
         *(.srodata.*)
     } > DMEM
 
-    .data :
+    /* Keep an initial-value copy before the writable .data area. */
+    __data_load_start = ALIGN(ADDR(.rodata) + SIZEOF(.rodata), 4);
+    .data (__data_load_start + SIZEOF(.data)) : AT(__data_load_start)
     {
         __data_start = .;
         *(.data)
         *(.data.*)
         *(.sdata)
         *(.sdata.*)
+        . = ALIGN(4);
         __data_end = .;
     } > DMEM
 
@@ -48,12 +51,13 @@ SECTIONS
         __bss_end = .;
     } > DMEM
 
+    /* Reserve the top 256 bytes for calls and interrupt context. */
+    __stack_size = 256;
     __stack_top = ORIGIN(DMEM) + LENGTH(DMEM);
+    __stack_bottom = __stack_top - __stack_size;
 
-    ASSERT(SIZEOF(.data) == 0,
-           "Initialized writable data is not supported yet")
-    ASSERT(__bss_end <= __stack_top,
-           "Data RAM overflow")
+    ASSERT(__bss_end <= __stack_bottom,
+           "Static data overlaps reserved stack")
 
     /DISCARD/ :
     {

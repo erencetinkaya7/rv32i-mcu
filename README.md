@@ -1,55 +1,74 @@
 # RV32I MCU
 
-A small FPGA microcontroller platform for learning how bare-metal C connects to a custom five-stage RV32I processor, memory-mapped peripherals, simulation, and real hardware.
+A small FPGA microcontroller for learning how bare-metal C runs on a custom five-stage RISC-V processor.
 
-The processor base comes from the verified `rv32i-pipelined` project at commit `40901f3`.
+The processor base comes from the verified `rv32i-pipelined` project at commit `40901f3`. Firmware targets RV32I with Zicsr for CSR access.
 
 ## Current checkpoint
 
-- Minimal C startup code and linker script
-- Separate instruction and data memory images
-- GPIO, timer, UART TX, and UART RX through memory-mapped I/O
-- Machine timer interrupts with an assembly context wrapper and C handler
-- Non-blocking C superloop with an interactive UART command interface
-- Self-checking full-SoC simulation
-- Tang Nano 9K synthesis, timing, and physical FPGA test
+- 4 KiB instruction memory and 1 KiB data memory
+- C startup that restores .data and clears .bss on every reset
+- GPIO, UART TX/RX, and a timer through memory-mapped I/O
+- Machine timer interrupts with an assembly entry wrapper and C handler
+- Interactive UART/LED application; UART reception is still polled
 
 ## Use
 
-Run everything from the repository root:
+Run commands from the repository root:
 
 ```bash
 make help
 make test
-make wave
 make fpga
 make flash
 make uart-ports
 make uart-monitor UART_PORT=/dev/ttyUSB1
 ```
 
-After flashing, open the UART monitor and press the board reset button. The board prints `C IRQ READY` and starts moving the LEDs. LED timing is driven by machine timer interrupts.
+`make flash` builds the interactive program and loads the FPGA's volatile configuration SRAM. The configuration is lost when power is removed.
+
+Open the UART monitor and press the physical reset button. The board prints `C IRQ READY` and moves the LEDs every half second.
 
 | Key | Action | Reply |
 |---|---|---|
-| `p` | Pause or resume the LED animation | `PAUSED` / `RUNNING` |
-| `r` | Reset the LED pattern | `RESET` |
-| `+` | Select the next faster step | `FASTER` |
-| `-` | Select the next slower step | `SLOWER` |
+| `p` | Pause or resume | `PAUSED` / `RUNNING` |
+| `r` | Return the LED pattern to its first position | `RESET` |
+| `+` | Faster, down to 0.125 seconds per step | `FASTER` |
+| `-` | Slower, up to 2 seconds per step | `SLOWER` |
 | other | Echo the received byte | same byte |
 
-## Timer interrupt path
+Speed can change while paused. Physical reset restores the initial speed and restarts the program.
 
-The timer raises a machine timer interrupt when its counter expires. The CPU records the interrupted PC and cause, jumps through `mtvec` to `trap_entry`, and saves the caller-saved registers. The C handler records the event and reloads the timer; `mret` then resumes the interrupted code. The main loop sees the new event count and advances the GPIO pattern when the animation is not paused.
+## Programs and memory
 
-`make test` checks the complete path, including the expected interrupt cause, handler return, UART commands, timer reload values, and GPIO behavior.
+`software/examples/bringup/main.c` is the interactive board application. The separate `runtime_check/main.c` example tests C initialization and reset using images in `build/runtime`.
+
+Instruction memory holds code. Data memory holds constants, a saved copy of initial values, writable .data, .bss, and the stack. Startup restores .data from the saved copy before entering main. The copy is in RAM and has no hardware write protection.
+
+The top 256 bytes of RAM are reserved for the stack. The linker rejects static data overlapping this reserve; runtime stack overflow is not detected. GCC reports individual C function stack usage in `main.su` beside each program's objects. The interrupt wrapper adds a 64-byte frame.
+
+## Verification
+
+`make test` runs all four checks and prints PASS/FAIL totals. These are MCU integration tests, not the full instruction/hazard regression from the original processor project.
+
+| Command | Checks |
+|---|---|
+| `make test-memory` | Expanded addresses, byte/halfword access, RAM boundaries |
+| `make test-c` | UART commands, GPIO, timer interrupts, MRET, reset speed |
+| `make test-runtime` | .data scalars/arrays and .bss across reset |
+| `make test-stack` | Linker acceptance and rejection at the stack boundary |
+
+Logs are in `build/logs`. `make wave` runs the regression and opens the C/SoC waveform.
+
+This checkpoint passed all four tests, synthesis, and timing at 27 MHz (post-route estimate: 41.44 MHz). UART, LED controls, and restoration of the initial speed after reset were also verified on a Tang Nano 9K.
 
 ## Layout
 
 ```text
 rtl/       Processor, pipeline, memories, peripherals, and SoC
-software/  Startup code, linker script, MMIO definitions, and C programs
-tests/     Self-checking SoC simulation
+software/  Common runtime and separate C examples
+tests/     Simulation tests and linker boundary fixture
 fpga/      Tang Nano 9K top level and pin constraints
 scripts/   Binary conversion and interactive UART terminal
+build/     Generated programs, simulations, logs, and FPGA image
 ```

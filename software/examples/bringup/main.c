@@ -9,7 +9,8 @@
 #define MAX_TIMER_TICKS       (TIMER_TICKS << 2)
 #define MACHINE_TIMER_CAUSE   0x80000007u
 
-static volatile uint32_t timer_ticks;
+// Startup restores this initial value from the .data image.
+static volatile uint32_t timer_ticks = TIMER_TICKS;
 static volatile uint32_t timer_interrupt_count;
 
 // Wait until UART is idle, then transmit one byte.
@@ -75,8 +76,6 @@ int main(void)
     uint32_t paused = 0u;
     uint32_t handled_timer_count = 0u;
 
-    timer_ticks = TIMER_TICKS;
-    timer_interrupt_count = 0u;
 
     uart_send_ready();
 

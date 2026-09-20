@@ -5,6 +5,20 @@
 # Prepare the C runtime, enable machine timer interrupts, then call main.
 _start:
     la   sp, __stack_top
+    la   t0, __data_load_start
+    la   t1, __data_start
+    la   t2, __data_end
+
+# Restore writable initial values on every reset.
+copy_data:
+    bgeu t1, t2, prepare_bss
+    lw   t3, 0(t0)
+    sw   t3, 0(t1)
+    addi t0, t0, 4
+    addi t1, t1, 4
+    j    copy_data
+
+prepare_bss:
     la   t0, __bss_start
     la   t1, __bss_end
 
