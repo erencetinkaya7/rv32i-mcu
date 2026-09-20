@@ -1,0 +1,16 @@
+# Generated build outputs
+/build/
+
+# Compiled software
+*.elf
+*.bin
+*.hex
+*.map
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Editor and OS files
+.DS_Store
+*~
