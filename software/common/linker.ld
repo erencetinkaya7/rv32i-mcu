@@ -12,6 +12,7 @@ SECTIONS
     .text :
     {
         KEEP(*(.init))
+        KEEP(*(.trap))
         *(.text)
         *(.text.*)
     } > IMEM

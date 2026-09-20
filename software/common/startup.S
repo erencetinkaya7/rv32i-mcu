@@ -2,7 +2,7 @@
 .globl _start
 .type _start, @function
 
-# Prepare the C runtime, then call main.
+# Prepare the C runtime, enable machine timer interrupts, then call main.
 _start:
     la   sp, __stack_top
     la   t0, __bss_start
@@ -10,12 +10,22 @@ _start:
 
 # C expects uninitialized global variables to start at zero.
 clear_bss:
-    bgeu t0, t1, call_main
+    bgeu t0, t1, configure_interrupts
     sw   zero, 0(t0)
     addi t0, t0, 4
     j    clear_bss
 
-call_main:
+# Route traps to trap_entry and enable machine timer interrupts.
+configure_interrupts:
+    la   t0, trap_entry
+    csrw mtvec, t0
+
+    li   t0, 0x80
+    csrw mie, t0
+
+    li   t0, 0x08
+    csrs mstatus, t0
+
     call main
 
 # Bare-metal main should not return.

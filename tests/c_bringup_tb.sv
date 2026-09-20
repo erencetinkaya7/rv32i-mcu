@@ -15,11 +15,19 @@ module c_bringup_tb;
 
     logic [31:0] paused_pattern;
     logic [31:0] last_timer_load = 32'b0;
+    integer timer_trap_count = 0;
+    integer mret_count = 0;
 
     always #5 clk = ~clk;
 
     // Remember the most recent value written to the timer.
     always @(posedge clk) begin
+        if (dut.cpu.trap_enter && (dut.cpu.trap_cause == 32'h8000_0007))
+            timer_trap_count <= timer_trap_count + 1;
+
+        if (dut.cpu.ex_mret)
+            mret_count <= mret_count + 1;
+
         if (dut.data_mem_write && dut.timer_load_selected)
             last_timer_load <= dut.data_write_data;
     end
@@ -112,6 +120,10 @@ module c_bringup_tb;
         // Startup message and ordinary echo.
         check_uart_byte("C");
         check_uart_byte(" ");
+        check_uart_byte("I");
+        check_uart_byte("R");
+        check_uart_byte("Q");
+        check_uart_byte(" ");
         check_uart_byte("R");
         check_uart_byte("E");
         check_uart_byte("A");
@@ -155,7 +167,7 @@ module c_bringup_tb;
         if (gpio_out !== 32'd1)
             $fatal(1, "FAIL: reset command did not restore GPIO pattern");
 
-        // Select the next faster timer value: 8 -> 4.
+        // Select the next faster timer value: 256 -> 128.
         send_uart_byte("+");
         check_uart_byte("F");
         check_uart_byte("A");
@@ -174,9 +186,9 @@ module c_bringup_tb;
         check_uart_byte("N");
         check_uart_byte("G");
         check_uart_byte(10);
-        wait_timer_load(32'd4);
+        wait_timer_load(32'd128);
 
-        // Pause, slow back down, and verify 4 -> 8.
+        // Pause, slow back down, and verify 128 -> 256.
         send_uart_byte("p");
         check_uart_byte("P");
         check_uart_byte("A");
@@ -204,9 +216,15 @@ module c_bringup_tb;
         check_uart_byte("N");
         check_uart_byte("G");
         check_uart_byte(10);
-        wait_timer_load(32'd8);
+        wait_timer_load(32'd256);
 
-        $display("PASS: C UART commands, timer values and GPIO behavior");
+        if (timer_trap_count == 0)
+            $fatal(1, "FAIL: no machine timer interrupt was taken");
+
+        if (mret_count == 0)
+            $fatal(1, "FAIL: trap handler did not execute MRET");
+
+        $display("PASS: C timer interrupts, UART commands and GPIO behavior");
         $finish;
     end
 

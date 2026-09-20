@@ -9,6 +9,7 @@ The processor base comes from the verified `rv32i-pipelined` project at commit `
 - Minimal C startup code and linker script
 - Separate instruction and data memory images
 - GPIO, timer, UART TX, and UART RX through memory-mapped I/O
+- Machine timer interrupts with an assembly context wrapper and C handler
 - Non-blocking C superloop with an interactive UART command interface
 - Self-checking full-SoC simulation
 - Tang Nano 9K synthesis, timing, and physical FPGA test
@@ -27,7 +28,7 @@ make uart-ports
 make uart-monitor UART_PORT=/dev/ttyUSB1
 ```
 
-After flashing, open the UART monitor and press the board reset button. The board prints `C READY` and starts moving the LEDs.
+After flashing, open the UART monitor and press the board reset button. The board prints `C IRQ READY` and starts moving the LEDs. LED timing is driven by machine timer interrupts.
 
 | Key | Action | Reply |
 |---|---|---|
@@ -36,6 +37,12 @@ After flashing, open the UART monitor and press the board reset button. The boar
 | `+` | Select the next faster step | `FASTER` |
 | `-` | Select the next slower step | `SLOWER` |
 | other | Echo the received byte | same byte |
+
+## Timer interrupt path
+
+The timer raises a machine timer interrupt when its counter expires. The CPU records the interrupted PC and cause, jumps through `mtvec` to `trap_entry`, and saves the caller-saved registers. The C handler records the event and reloads the timer; `mret` then resumes the interrupted code. The main loop sees the new event count and advances the GPIO pattern when the animation is not paused.
+
+`make test` checks the complete path, including the expected interrupt cause, handler return, UART commands, timer reload values, and GPIO behavior.
 
 ## Layout
 

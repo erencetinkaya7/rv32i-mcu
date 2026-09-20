@@ -15,9 +15,11 @@ APP_DIR       := software/examples/bringup
 STARTUP_SRC := $(COMMON_DIR)/startup.S
 MAIN_SRC    := $(APP_DIR)/main.c
 LINKER      := $(COMMON_DIR)/linker.ld
+TRAP_SRC    := $(COMMON_DIR)/trap_entry.S
 
 STARTUP_OBJ := $(SOFTWARE_BUILD)/startup.o
 MAIN_OBJ    := $(SOFTWARE_BUILD)/main.o
+TRAP_OBJ    := $(SOFTWARE_BUILD)/trap_entry.o
 TIMER_CONFIG := $(SOFTWARE_BUILD)/timer_ticks.txt
 ELF         := $(SOFTWARE_BUILD)/bringup.elf
 IMEM_BIN    := $(SOFTWARE_BUILD)/imem.bin
@@ -27,7 +29,7 @@ DIS         := $(SOFTWARE_BUILD)/bringup.dis
 IMEM_HEX    := $(SOFTWARE_BUILD)/imem.hex
 DMEM_HEX    := $(SOFTWARE_BUILD)/dmem.hex
 
-ARCH ?= rv32i
+ARCH ?= rv32i_zicsr
 ABI  ?= ilp32
 TIMER_TICKS ?= 1000
 
@@ -70,6 +72,10 @@ $(STARTUP_OBJ): $(STARTUP_SRC) $(LINKER)
 	@mkdir -p $(SOFTWARE_BUILD)
 	$(CC) $(CPPFLAGS) $(ASFLAGS) -c $< -o $@
 
+$(TRAP_OBJ): $(TRAP_SRC) $(LINKER)
+	@mkdir -p $(SOFTWARE_BUILD)
+	$(CC) $(CPPFLAGS) $(ASFLAGS) -c $< -o $@
+
 $(TIMER_CONFIG): FORCE
 	@mkdir -p $(SOFTWARE_BUILD)
 	@if [ ! -f "$@" ] || [ "$$(cat "$@")" != "$(TIMER_TICKS)" ]; then \
@@ -80,8 +86,8 @@ $(MAIN_OBJ): $(MAIN_SRC) $(COMMON_DIR)/mmio.h $(TIMER_CONFIG)
 	@mkdir -p $(SOFTWARE_BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-$(ELF): $(STARTUP_OBJ) $(MAIN_OBJ) $(LINKER)
-	$(CC) $(LDFLAGS) $(STARTUP_OBJ) $(MAIN_OBJ) -o $@
+$(ELF): $(STARTUP_OBJ) $(TRAP_OBJ) $(MAIN_OBJ) $(LINKER)
+	$(CC) $(LDFLAGS) $(STARTUP_OBJ) $(TRAP_OBJ) $(MAIN_OBJ) -o $@
 	$(SIZE) $@
 
 $(IMEM_BIN): $(ELF)
@@ -153,7 +159,7 @@ TEST_LOG  := $(LOG_DIR)/c_bringup_tb.log
 FORCE:
 
 
-test: TIMER_TICKS=8
+test: TIMER_TICKS=256
 test: software $(TEST_SIM)
 	@mkdir -p $(LOG_DIR) $(WAVE_DIR)
 	@$(VVP) $(TEST_SIM) > $(TEST_LOG) 2>&1 || { cat $(TEST_LOG); exit 1; }

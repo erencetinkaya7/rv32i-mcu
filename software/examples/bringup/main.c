@@ -5,9 +5,12 @@
 #define TIMER_TICKS 1000u
 #endif
 
-#define MIN_TIMER_TICKS (TIMER_TICKS >> 2)
-#define MAX_TIMER_TICKS (TIMER_TICKS << 2)
+#define MIN_TIMER_TICKS       (TIMER_TICKS >> 2)
+#define MAX_TIMER_TICKS       (TIMER_TICKS << 2)
+#define MACHINE_TIMER_CAUSE   0x80000007u
 
+static volatile uint32_t timer_ticks;
+static volatile uint32_t timer_interrupt_count;
 
 // Wait until UART is idle, then transmit one byte.
 __attribute__((noinline))
@@ -50,14 +53,30 @@ static int uart_try_getc(void)
 
 static void uart_send_ready(void)
 {
-    uart_puts("C READY\n");
+    uart_puts("C IRQ READY\n");
+}
+
+// Called by trap_entry with the interrupted register context preserved.
+void machine_trap_handler(void)
+{
+    uint32_t cause;
+
+    __asm__ volatile ("csrr %0, mcause" : "=r"(cause));
+
+    if (cause == MACHINE_TIMER_CAUSE) {
+        timer_interrupt_count++;
+        MMIO32(TIMER_LOAD_ADDR) = timer_ticks;
+    }
 }
 
 int main(void)
 {
     uint32_t pattern = 1u;
     uint32_t paused = 0u;
-    uint32_t timer_ticks = TIMER_TICKS;
+    uint32_t handled_timer_count = 0u;
+
+    timer_ticks = TIMER_TICKS;
+    timer_interrupt_count = 0u;
 
     uart_send_ready();
 
@@ -95,16 +114,18 @@ int main(void)
             uart_putc((uint8_t)received);
         }
 
-        if (((MMIO32(TIMER_STATUS_ADDR) & 1u) == 0u) &&
-            (paused == 0u)) {
-            if (pattern == 32u) {
-                pattern = 1u;
-            } else {
-                pattern = pattern << 1;
-            }
+        if (handled_timer_count != timer_interrupt_count) {
+            handled_timer_count = timer_interrupt_count;
 
-            MMIO32(GPIO_OUT_ADDR) = pattern;
-            MMIO32(TIMER_LOAD_ADDR) = timer_ticks;
+            if (paused == 0u) {
+                if (pattern == 32u) {
+                    pattern = 1u;
+                } else {
+                    pattern = pattern << 1;
+                }
+
+                MMIO32(GPIO_OUT_ADDR) = pattern;
+            }
         }
     }
 }
