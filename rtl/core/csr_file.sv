@@ -10,6 +10,7 @@ module csr_file (
     input  logic [31:0] trap_pc,
     input  logic [31:0] trap_cause,
     input  logic        timer_irq,
+    input  logic        external_irq,
 
     // CSR access
     input  logic [11:0] csr_read_addr,
@@ -37,13 +38,13 @@ module csr_file (
     localparam logic [11:0] CSR_MIP     = 12'h344;
 
     localparam logic [31:0] MSTATUS_MASK = 32'h0000_0088;
-    localparam logic [31:0] MIE_MASK     = 32'h0000_0080;
+    localparam logic [31:0] MIE_MASK     = 32'h0000_0880; // Hangi bitlerin degistirilebildigini belirliyor bit7 ve bit11 acik.
     localparam logic [31:0] TIMER_CAUSE  = 32'h8000_0007;
 
     logic timer_irq_pending;
 
-    // MTIP is read-only and records a timer pulse until it is serviced.
-    assign mip = {24'b0, timer_irq_pending, 7'b0};
+    // Pending bits: external level at bit 11, latched timer event at bit 7.
+    assign mip = {20'b0, external_irq, 3'b0, timer_irq_pending, 7'b0};
 
 
     // CSR read

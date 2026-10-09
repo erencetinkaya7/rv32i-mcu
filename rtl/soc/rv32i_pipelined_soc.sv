@@ -63,6 +63,7 @@ module rv32i_pipelined_soc #(
     logic uart_rx_data_selected;
     logic uart_rx_status_selected;
     logic uart_rx_clear_selected;
+    logic uart_irq;
 
     // Data RAM: 0x0001_0000 - 0x0001_03FF
     assign ram_selected = (data_address[31:10] == DATA_RAM_BASE[31:10]);
@@ -84,11 +85,15 @@ module rv32i_pipelined_soc #(
         .instruction (instruction_data)
     );
 
+    // Keep the interrupt asserted until software clears the RX status.
+    assign uart_irq = uart_rx_data_valid | uart_rx_framing_error;
+
     // Pipelined CPU
     rv32i_pipelined_core cpu (
         .clk                 (clk),
         .reset               (reset),
         .timer_irq           (timer_done),
+        .external_irq        (uart_irq),
         .instruction_data    (instruction_data),
         .instruction_address (instruction_address),
         .data_read_data      (data_read_data),

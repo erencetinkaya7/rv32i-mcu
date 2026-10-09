@@ -127,7 +127,8 @@ help:
 	@echo "Run from the repository root:"
 	@echo "  make software             Compile and link the C program"
 	@echo "  make inspect              Show ELF sections and RV32I disassembly"
-	@echo "  make test                 Run all four checks with PASS/FAIL totals"
+	@echo "  make test                 Run all regression checks with PASS/FAIL totals"
+	@echo "  make test-external-irq     Check external interrupt control and return"
 	@echo "  make test-stack            Check linker stack-reservation boundary"
 	@echo "  make test-runtime          Check C initial values across reset"
 	@echo "  make test-c                Run the C/SoC integration test"
@@ -167,7 +168,7 @@ FORCE:
 # Count test targets, including build failures, and always run every test.
 test:
 	@passed=0; failed=0; \
-	for target in test-memory test-c test-runtime test-stack; do \
+	for target in test-memory test-c test-runtime test-stack test-external-irq; do \
 		if $(MAKE) --no-print-directory $$target; then \
 			passed=$$((passed + 1)); \
 		else \
@@ -283,3 +284,25 @@ test-stack:
 	fi
 	@grep -q "Static data overlaps reserved stack" $(LOG_DIR)/stack_overlap.log || { cat $(LOG_DIR)/stack_overlap.log; exit 1; }
 	@echo "PASS: linker accepts the boundary and rejects stack overlap"
+
+# CPU interrupt test program; independent of the C startup and board firmware.
+IRQ_BUILD := $(BUILD)/interrupt-test
+.PHONY: test-external-irq
+test-external-irq: $(IRQ_BUILD)/program.hex $(SIM_BUILD)/external_interrupt_tb_sim
+	@mkdir -p $(LOG_DIR) $(WAVE_DIR)
+	@$(VVP) $(SIM_BUILD)/external_interrupt_tb_sim > $(LOG_DIR)/external_interrupt_tb.log 2>&1 || { cat $(LOG_DIR)/external_interrupt_tb.log; exit 1; }
+	@cat $(LOG_DIR)/external_interrupt_tb.log
+	@grep -q "PASS" $(LOG_DIR)/external_interrupt_tb.log
+
+$(IRQ_BUILD)/program.elf: tests/programs/external_interrupt.S
+	@mkdir -p $(IRQ_BUILD)
+	$(CC) $(ARCH_FLAGS) -nostdlib -nostartfiles -Wl,-Ttext=0 -Wl,--no-relax -Wl,--build-id=none $< -o $@
+
+$(IRQ_BUILD)/program.hex: $(IRQ_BUILD)/program.elf scripts/bin_to_hex.py Makefile
+	$(OBJCOPY) -O binary --only-section=.text $< $(IRQ_BUILD)/program.bin
+	$(PYTHON) scripts/bin_to_hex.py $(IRQ_BUILD)/program.bin $@ --words 1024 --fill 0x00000013 --strict-word-alignment
+	@touch $@
+
+$(SIM_BUILD)/external_interrupt_tb_sim: tests/external_interrupt_tb.sv $(wildcard $(RTL))
+	@mkdir -p $(SIM_BUILD)
+	$(IVERILOG) -g2012 -s external_interrupt_tb -o $@ $(RTL) $<

@@ -39,6 +39,8 @@ Open the UART monitor and press the physical reset button. The board prints `C I
 
 Speed can change while paused. Physical reset restores the initial speed and restarts the program.
 
+External interrupt RTL is under development. `make test-external-irq` uses a mock source to test the CPU path; the board C program still polls UART and does not enable external interrupts. Its waveform is `build/waves/external_interrupt.vcd`.
+
 ## Programs and memory
 
 `software/examples/bringup/main.c` is the interactive board application. The separate `runtime_check/main.c` example tests C initialization and reset using images in `build/runtime`.
@@ -49,7 +51,7 @@ The top 256 bytes of RAM are reserved for the stack. The linker rejects static d
 
 ## Verification
 
-`make test` runs all four checks and prints PASS/FAIL totals. These are MCU integration tests, not the full instruction/hazard regression from the original processor project.
+`make test` runs all five checks and prints PASS/FAIL totals. These are MCU integration tests, not the full instruction/hazard regression from the original processor project.
 
 | Command | Checks |
 |---|---|
@@ -57,10 +59,11 @@ The top 256 bytes of RAM are reserved for the stack. The linker rejects static d
 | `make test-c` | UART commands, GPIO, timer interrupts, MRET, reset speed |
 | `make test-runtime` | .data scalars/arrays and .bss across reset |
 | `make test-stack` | Linker acceptance and rejection at the stack boundary |
+| `make test-external-irq` | External interrupt masks, pending, priority, source clear, and MRET |
 
 Logs are in `build/logs`. `make wave` runs the regression and opens the C/SoC waveform.
 
-This checkpoint passed all four tests, synthesis, and timing at 27 MHz (post-route estimate: 41.44 MHz). UART, LED controls, and restoration of the initial speed after reset were also verified on a Tang Nano 9K.
+The current external-interrupt RTL passes all five simulation/linker checks. FPGA synthesis and physical validation of this new interrupt path are pending. The previous memory/C-startup checkpoint passed timing at 27 MHz (post-route estimate: 41.44 MHz) and its UART/LED/reset demo was verified on a Tang Nano 9K.
 
 ## Layout
 

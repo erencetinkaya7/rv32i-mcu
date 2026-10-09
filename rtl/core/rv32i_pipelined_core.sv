@@ -6,6 +6,7 @@ module rv32i_pipelined_core (
     input  logic        clk,
     input  logic        reset,
     input  logic        timer_irq,
+    input  logic        external_irq,
 
     // Instruction interface
     input  logic [31:0] instruction_data,
@@ -33,6 +34,8 @@ module rv32i_pipelined_core (
     logic ex_pc_redirect;
     logic ex_sync_redirect;
     logic interrupt_request;
+    logic timer_interrupt_ready;
+    logic external_interrupt_ready;
     logic interrupt_take;
     logic trap_enter;
     logic [31:0] trap_pc;
@@ -369,8 +372,17 @@ module rv32i_pipelined_core (
 
 // Machine-mode trap CSRs
 
+    // Each source needs both a pending request and its individual enable.
+    assign timer_interrupt_ready =
+        csr_mie[7] & csr_mip[7];
+
+    assign external_interrupt_ready =
+        csr_mie[11] & csr_mip[11];
+
+    // Global enable gates both interrupt sources.
     assign interrupt_request =
-        csr_mstatus[3] & csr_mie[7] & csr_mip[7];
+        csr_mstatus[3] &
+        (timer_interrupt_ready | external_interrupt_ready);
 
     // The EX instruction completes; the valid ID instruction is retried after MRET.
     assign interrupt_take =
@@ -379,8 +391,11 @@ module rv32i_pipelined_core (
 
     assign trap_enter = ex_ecall | interrupt_take;
     assign trap_pc = ex_ecall ? ex_pc : if_id_pc;
+    // ECALL takes precedence; external interrupt has priority over timer.
     assign trap_cause =
-        ex_ecall ? 32'd11 : 32'h8000_0007;
+        ex_ecall                 ? 32'd11 : // Ex asamasindaki komut ecall.
+        external_interrupt_ready ? 32'h8000_000B :
+                               32'h8000_0007;
 
     csr_file trap_csrs (
         .clk              (clk),
@@ -391,6 +406,7 @@ module rv32i_pipelined_core (
         .trap_pc          (trap_pc),
         .trap_cause       (trap_cause),
         .timer_irq        (timer_irq),
+        .external_irq     (external_irq),
 
         .csr_read_addr    (ex_immediate[11:0]),
         .csr_read_data    (csr_read_data),
